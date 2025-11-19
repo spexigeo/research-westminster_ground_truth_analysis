@@ -428,22 +428,22 @@ class OrthomosaicPipeline:
             camera_matrix
         )
         
-        # Set first camera at origin
+        # Set first camera at origin - ensure position is proper numpy array
         self.camera_poses[i] = CameraPose(
-            position=np.array([0, 0, 0]),
-            rotation=np.eye(3),
+            position=np.array([0.0, 0.0, 0.0], dtype=np.float64),
+            rotation=np.eye(3, dtype=np.float64),
             camera_matrix=camera_matrix,
             distortion_coeffs=dist_coeffs
         )
         
-        # Set second camera - ensure position is 1D array
-        position = t.ravel()
+        # Set second camera - ensure position is proper numpy array with correct shape and dtype
+        position = np.array(t.ravel(), dtype=np.float64)
         if position.shape != (3,):
             position = position.reshape(3)
         
         self.camera_poses[j] = CameraPose(
             position=position,
-            rotation=R,
+            rotation=R.astype(np.float64),
             camera_matrix=camera_matrix,
             distortion_coeffs=dist_coeffs
         )
@@ -467,6 +467,26 @@ class OrthomosaicPipeline:
         self.camera_poses[j].position *= scale
         
         print(f"Initialized poses for {sum(1 for p in self.camera_poses if p is not None)} cameras")
+    
+    def _ensure_tvec_shape(self, position: np.ndarray) -> np.ndarray:
+        """Ensure translation vector is in correct shape (3x1) and dtype (float64) for projectPoints."""
+        # Convert to numpy array if not already
+        tvec = np.asarray(position, dtype=np.float64)
+        # Ensure it's 3x1 (column vector)
+        if tvec.ndim == 0:
+            raise ValueError(f"Position must be at least 1D, got scalar: {tvec}")
+        elif tvec.ndim == 1:
+            if tvec.shape[0] != 3:
+                raise ValueError(f"Position must have 3 elements, got {tvec.shape[0]}: {tvec}")
+            tvec = tvec.reshape(3, 1)
+        elif tvec.ndim == 2:
+            if tvec.shape == (3, 1) or tvec.shape == (1, 3):
+                tvec = tvec.reshape(3, 1)
+            else:
+                raise ValueError(f"Position must be 3x1 or 1x3, got {tvec.shape}: {tvec}")
+        else:
+            raise ValueError(f"Position must be 1D or 2D, got {tvec.ndim}D: {tvec}")
+        return tvec
     
     def _triangulate_points(
         self,
@@ -618,8 +638,8 @@ class OrthomosaicPipeline:
             # Project back to image 1
             pose1 = self.camera_poses[i]
             rvec, _ = cv2.Rodrigues(pose1.rotation)
-            # Ensure tvec is 3x1 (column vector)
-            tvec = pose1.position.reshape(3, 1) if pose1.position.ndim == 1 else pose1.position.reshape(3, 1)
+            # Ensure tvec is 3x1 (column vector) with proper dtype
+            tvec = self._ensure_tvec_shape(pose1.position)
             projected1, _ = cv2.projectPoints(
                 points_3d,
                 rvec,
@@ -633,8 +653,8 @@ class OrthomosaicPipeline:
             # Project back to image 2
             pose2 = self.camera_poses[j]
             rvec, _ = cv2.Rodrigues(pose2.rotation)
-            # Ensure tvec is 3x1 (column vector)
-            tvec = pose2.position.reshape(3, 1) if pose2.position.ndim == 1 else pose2.position.reshape(3, 1)
+            # Ensure tvec is 3x1 (column vector) with proper dtype
+            tvec = self._ensure_tvec_shape(pose2.position)
             projected2, _ = cv2.projectPoints(
                 points_3d,
                 rvec,
@@ -722,8 +742,8 @@ class OrthomosaicPipeline:
             
             # Project to image
             rvec, _ = cv2.Rodrigues(pose.rotation)
-            # Ensure tvec is 3x1 (column vector)
-            tvec = pose.position.reshape(3, 1) if pose.position.ndim == 1 else pose.position.reshape(3, 1)
+            # Ensure tvec is 3x1 (column vector) with proper dtype
+            tvec = self._ensure_tvec_shape(pose.position)
             projected, _ = cv2.projectPoints(
                 points_3d,
                 rvec,
