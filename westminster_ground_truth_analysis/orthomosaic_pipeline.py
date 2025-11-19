@@ -14,6 +14,8 @@ from rasterio.crs import CRS
 from PIL import Image
 import utm
 from tqdm import tqdm
+import pickle
+import json
 
 from .gcp_parser import GroundControlPoint, GCPParser
 from .dji_metadata import DJIMetadataParser
@@ -192,8 +194,83 @@ class OrthomosaicPipeline:
             return float(values[0]) + float(values[1])/60.0 + float(values[2])/3600.0
         return float(values[0])
     
-    def detect_features(self):
+    def _get_features_cache_path(self) -> Path:
+        """Get path to features cache file."""
+        cache_dir = self.output_dir / "cache"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        return cache_dir / "features.pkl"
+    
+    def _get_matches_cache_path(self) -> Path:
+        """Get path to matches cache file."""
+        cache_dir = self.output_dir / "cache"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        return cache_dir / "matches.pkl"
+    
+    def _save_features(self):
+        """Save detected features to cache file."""
+        cache_path = self._get_features_cache_path()
+        with open(cache_path, 'wb') as f:
+            pickle.dump(self.features, f)
+        print(f"Features saved to {cache_path}")
+    
+    def _load_features(self) -> bool:
+        """Load features from cache file if it exists."""
+        cache_path = self._get_features_cache_path()
+        if cache_path.exists():
+            print(f"Loading features from cache: {cache_path}")
+            with open(cache_path, 'rb') as f:
+                self.features = pickle.load(f)
+            print(f"Loaded features for {len(self.features)} images")
+            return True
+        return False
+    
+    def _save_matches(self):
+        """Save feature matches to cache file."""
+        cache_path = self._get_matches_cache_path()
+        # Convert matches to serializable format
+        matches_data = []
+        for match in self.matches:
+            matches_data.append({
+                'image1_idx': match.image1_idx,
+                'image2_idx': match.image2_idx,
+                'points1': match.points1,
+                'points2': match.points2,
+                'descriptors1': match.descriptors1,
+                'descriptors2': match.descriptors2
+            })
+        with open(cache_path, 'wb') as f:
+            pickle.dump(matches_data, f)
+        print(f"Matches saved to {cache_path}")
+    
+    def _load_matches(self) -> bool:
+        """Load matches from cache file if it exists."""
+        cache_path = self._get_matches_cache_path()
+        if cache_path.exists():
+            print(f"Loading matches from cache: {cache_path}")
+            with open(cache_path, 'rb') as f:
+                matches_data = pickle.load(f)
+            # Reconstruct Match objects
+            self.matches = []
+            for m_data in matches_data:
+                match = Match(
+                    image1_idx=m_data['image1_idx'],
+                    image2_idx=m_data['image2_idx'],
+                    points1=m_data['points1'],
+                    points2=m_data['points2'],
+                    descriptors1=m_data['descriptors1'],
+                    descriptors2=m_data['descriptors2']
+                )
+                self.matches.append(match)
+            print(f"Loaded {len(self.matches)} matches")
+            return True
+        return False
+    
+    def detect_features(self, use_cache: bool = True):
         """Detect features in all images."""
+        # Try to load from cache first
+        if use_cache and self._load_features():
+            return
+        
         print("Detecting features...")
         self.features = []
         
@@ -215,9 +292,17 @@ class OrthomosaicPipeline:
             self.features.append((kp_array, descriptors))
         
         print(f"Detected features in {len(self.features)} images")
+        
+        # Save to cache
+        if use_cache:
+            self._save_features()
     
-    def match_features(self, max_pairs: int = 100):
+    def match_features(self, max_pairs: int = 100, use_cache: bool = True):
         """Match features between image pairs."""
+        # Try to load from cache first
+        if use_cache and self._load_matches():
+            return
+        
         print("Matching features...")
         self.matches = []
         
@@ -267,6 +352,10 @@ class OrthomosaicPipeline:
                     pairs_processed += 1
         
         print(f"Found {len(self.matches)} image pairs with sufficient matches")
+        
+        # Save to cache
+        if use_cache:
+            self._save_matches()
     
     def estimate_camera_intrinsics(self) -> Tuple[np.ndarray, np.ndarray]:
         """
@@ -347,9 +436,13 @@ class OrthomosaicPipeline:
             distortion_coeffs=dist_coeffs
         )
         
-        # Set second camera
+        # Set second camera - ensure position is 1D array
+        position = t.ravel()
+        if position.shape != (3,):
+            position = position.reshape(3)
+        
         self.camera_poses[j] = CameraPose(
-            position=t.ravel(),
+            position=position,
             rotation=R,
             camera_matrix=camera_matrix,
             distortion_coeffs=dist_coeffs
@@ -525,10 +618,12 @@ class OrthomosaicPipeline:
             # Project back to image 1
             pose1 = self.camera_poses[i]
             rvec, _ = cv2.Rodrigues(pose1.rotation)
+            # Ensure tvec is 3x1 (column vector)
+            tvec = pose1.position.reshape(3, 1) if pose1.position.ndim == 1 else pose1.position.reshape(3, 1)
             projected1, _ = cv2.projectPoints(
                 points_3d,
                 rvec,
-                pose1.position,
+                tvec,
                 pose1.camera_matrix,
                 pose1.distortion_coeffs
             )
@@ -538,10 +633,12 @@ class OrthomosaicPipeline:
             # Project back to image 2
             pose2 = self.camera_poses[j]
             rvec, _ = cv2.Rodrigues(pose2.rotation)
+            # Ensure tvec is 3x1 (column vector)
+            tvec = pose2.position.reshape(3, 1) if pose2.position.ndim == 1 else pose2.position.reshape(3, 1)
             projected2, _ = cv2.projectPoints(
                 points_3d,
                 rvec,
-                pose2.position,
+                tvec,
                 pose2.camera_matrix,
                 pose2.distortion_coeffs
             )
@@ -625,10 +722,12 @@ class OrthomosaicPipeline:
             
             # Project to image
             rvec, _ = cv2.Rodrigues(pose.rotation)
+            # Ensure tvec is 3x1 (column vector)
+            tvec = pose.position.reshape(3, 1) if pose.position.ndim == 1 else pose.position.reshape(3, 1)
             projected, _ = cv2.projectPoints(
                 points_3d,
                 rvec,
-                pose.position,
+                tvec,
                 pose.camera_matrix,
                 pose.distortion_coeffs
             )

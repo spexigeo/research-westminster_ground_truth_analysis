@@ -42,6 +42,10 @@ outputs/
 *.jpg
 *.jpeg
 
+# Cache
+**/cache/
+*.pkl
+
 # Data (if large)
 # Uncomment if you want to ignore data files
 # data/
