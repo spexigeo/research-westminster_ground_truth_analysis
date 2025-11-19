@@ -788,6 +788,14 @@ class OrthomosaicPipeline:
             dst.write(ortho_image.transpose(2, 0, 1))
         
         print(f"Orthomosaic saved to {output_path}")
+        
+        # Also save as PNG for easy viewing in notebook
+        png_path = str(Path(output_path).with_suffix('.png'))
+        # Convert BGR to RGB for PNG (OpenCV uses BGR, PIL uses RGB)
+        ortho_rgb = cv2.cvtColor(ortho_image, cv2.COLOR_BGR2RGB)
+        png_image = Image.fromarray(ortho_rgb)
+        png_image.save(png_path, 'PNG', optimize=True)
+        print(f"Orthomosaic PNG saved to {png_path}")
     
     def run_full_pipeline(
         self,
