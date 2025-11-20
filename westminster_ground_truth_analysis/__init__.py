@@ -5,7 +5,7 @@ __version__ = "0.1.0"
 from .gcp_parser import GCPParser, GroundControlPoint
 from .dji_metadata import DJIMetadataParser, TimestampEntry, NavigationData
 from .orthomosaic_pipeline import OrthomosaicPipeline, ImageMetadata, CameraPose, Match
-from .basemap_downloader import download_basemap, compare_orthomosaic_to_basemap
+from .basemap_downloader import download_basemap, compare_orthomosaic_to_basemap, compute_2d_displacement_via_features
 from .visualization import (
     visualize_matches,
     visualize_reprojection_errors,
@@ -25,6 +25,7 @@ __all__ = [
     'Match',
     'download_basemap',
     'compare_orthomosaic_to_basemap',
+    'compute_2d_displacement_via_features',
     'visualize_matches',
     'visualize_reprojection_errors',
     'visualize_camera_poses',

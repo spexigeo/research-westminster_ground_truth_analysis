@@ -258,10 +258,221 @@ def download_basemap(
     return output_path
 
 
+def compute_2d_displacement_via_features(
+    ortho_path: str,
+    basemap_path: str,
+    feature_detector: str = "sift",
+    max_features: int = 5000
+) -> dict:
+    """
+    Compute 2D displacement between orthomosaic and basemap using feature matching.
+    
+    This method doesn't require perfect georeferencing - it finds matching features
+    and computes the transformation/displacement between them.
+    
+    Args:
+        ortho_path: Path to orthomosaic GeoTIFF
+        basemap_path: Path to basemap GeoTIFF
+        feature_detector: Feature detector to use ('sift', 'orb', 'akaze')
+        max_features: Maximum number of features to detect
+        
+    Returns:
+        Dictionary with displacement metrics and transformation info
+    """
+    print("Computing 2D displacement via feature matching...")
+    
+    # Load images
+    with rasterio.open(ortho_path) as ortho_src:
+        ortho_data = ortho_src.read()
+        ortho_transform = ortho_src.transform
+        ortho_crs = ortho_src.crs
+    
+    with rasterio.open(basemap_path) as basemap_src:
+        basemap_data = basemap_src.read()
+        basemap_transform = basemap_src.transform
+        basemap_crs = basemap_src.crs
+    
+    # Convert to numpy arrays and resize if needed for matching
+    ortho_img = ortho_data.transpose(1, 2, 0)
+    basemap_img = basemap_data.transpose(1, 2, 0)
+    
+    # Resize to reasonable size for feature matching (max 2000px on longest side)
+    max_size = 2000
+    ortho_h, ortho_w = ortho_img.shape[:2]
+    basemap_h, basemap_w = basemap_img.shape[:2]
+    
+    ortho_scale = min(1.0, max_size / max(ortho_h, ortho_w))
+    basemap_scale = min(1.0, max_size / max(basemap_h, basemap_w))
+    
+    if ortho_scale < 1.0:
+        new_w, new_h = int(ortho_w * ortho_scale), int(ortho_h * ortho_scale)
+        ortho_img = cv2.resize(ortho_img, (new_w, new_h))
+        print(f"Resized orthomosaic to {new_w}x{new_h} for matching")
+    
+    if basemap_scale < 1.0:
+        new_w, new_h = int(basemap_w * basemap_scale), int(basemap_h * basemap_scale)
+        basemap_img = cv2.resize(basemap_img, (new_w, new_h))
+        print(f"Resized basemap to {new_w}x{new_h} for matching")
+    
+    # Convert to grayscale
+    if len(ortho_img.shape) == 3:
+        ortho_gray = cv2.cvtColor(ortho_img, cv2.COLOR_RGB2GRAY)
+    else:
+        ortho_gray = ortho_img
+    
+    if len(basemap_img.shape) == 3:
+        basemap_gray = cv2.cvtColor(basemap_img, cv2.COLOR_RGB2GRAY)
+    else:
+        basemap_gray = basemap_img
+    
+    # Initialize feature detector
+    if feature_detector == "sift":
+        detector = cv2.SIFT_create(nfeatures=max_features)
+        matcher = cv2.BFMatcher(cv2.NORM_L2, crossCheck=False)
+    elif feature_detector == "orb":
+        detector = cv2.ORB_create(nfeatures=max_features)
+        matcher = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
+    elif feature_detector == "akaze":
+        detector = cv2.AKAZE_create()
+        matcher = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
+    else:
+        raise ValueError(f"Unknown feature detector: {feature_detector}")
+    
+    # Detect features
+    print("Detecting features in orthomosaic and basemap...")
+    kp1, desc1 = detector.detectAndCompute(ortho_gray, None)
+    kp2, desc2 = detector.detectAndCompute(basemap_gray, None)
+    
+    if desc1 is None or desc2 is None or len(kp1) < 10 or len(kp2) < 10:
+        return {
+            'displacement_x': 0.0,
+            'displacement_y': 0.0,
+            'displacement_magnitude': 0.0,
+            'num_matches': 0,
+            'rmse': 0.0,
+            'note': 'Insufficient features for matching'
+        }
+    
+    # Match features
+    matches = matcher.knnMatch(desc1, desc2, k=2)
+    
+    # Apply ratio test
+    good_matches = []
+    for match_pair in matches:
+        if len(match_pair) == 2:
+            m, n = match_pair
+            if m.distance < 0.7 * n.distance:
+                good_matches.append(m)
+    
+    if len(good_matches) < 10:
+        return {
+            'displacement_x': 0.0,
+            'displacement_y': 0.0,
+            'displacement_magnitude': 0.0,
+            'num_matches': len(good_matches),
+            'rmse': 0.0,
+            'note': f'Insufficient matches ({len(good_matches)})'
+        }
+    
+    print(f"Found {len(good_matches)} good feature matches")
+    
+    # Extract matched points
+    src_pts = np.float32([kp1[m.queryIdx].pt for m in good_matches]).reshape(-1, 1, 2)
+    dst_pts = np.float32([kp2[m.trainIdx].pt for m in good_matches]).reshape(-1, 1, 2)
+    
+    # Find homography (perspective transformation)
+    H, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
+    
+    if H is None:
+        # Fallback to similarity transform (translation + rotation + scale)
+        similarity, inliers = cv2.estimateAffinePartial2D(src_pts, dst_pts, method=cv2.RANSAC)
+        
+        if similarity is None:
+            # Simple translation estimate
+            translation = np.mean(dst_pts - src_pts, axis=0)[0]
+            return {
+                'displacement_x': float(translation[0]),
+                'displacement_y': float(translation[1]),
+                'displacement_magnitude': float(np.linalg.norm(translation)),
+                'num_matches': len(good_matches),
+                'num_inliers': len(good_matches),
+                'rmse': 0.0,
+                'transform_type': 'translation'
+            }
+        
+        # Extract translation from similarity transform
+        translation = similarity[:, 2]
+        scale = np.sqrt(similarity[0, 0]**2 + similarity[0, 1]**2)
+        rotation = np.arctan2(similarity[0, 1], similarity[0, 0]) * 180 / np.pi
+        
+        # Calculate RMSE for inliers
+        inlier_src = src_pts[inliers.ravel() == 1]
+        inlier_dst = dst_pts[inliers.ravel() == 1]
+        transformed = cv2.transform(inlier_src, similarity.reshape(2, 3))
+        errors = np.linalg.norm(transformed.reshape(-1, 2) - inlier_dst.reshape(-1, 2), axis=1)
+        rmse = np.sqrt(np.mean(errors**2))
+        
+        return {
+            'displacement_x': float(translation[0]),
+            'displacement_y': float(translation[1]),
+            'displacement_magnitude': float(np.linalg.norm(translation)),
+            'scale': float(scale),
+            'rotation_deg': float(rotation),
+            'num_matches': len(good_matches),
+            'num_inliers': int(inliers.sum()),
+            'rmse': float(rmse),
+            'transform_type': 'similarity'
+        }
+    
+    # Use homography
+    inlier_count = int(mask.sum())
+    
+    # Calculate displacement from homography
+    # For homography, we need to compute the translation at a reference point
+    # Use the center of the orthomosaic as reference
+    center_pt = np.array([[ortho_gray.shape[1] / 2, ortho_gray.shape[0] / 2]], dtype=np.float32).reshape(-1, 1, 2)
+    transformed_center = cv2.perspectiveTransform(center_pt, H)
+    translation = (transformed_center[0, 0] - center_pt[0, 0])
+    
+    # Calculate RMSE for inliers
+    inlier_src = src_pts[mask.ravel() == 1]
+    inlier_dst = dst_pts[mask.ravel() == 1]
+    transformed = cv2.perspectiveTransform(inlier_src, H)
+    errors = np.linalg.norm(transformed.reshape(-1, 2) - inlier_dst.reshape(-1, 2), axis=1)
+    rmse = np.sqrt(np.mean(errors**2))
+    
+    # Convert pixel displacement to meters if possible
+    # Use orthomosaic resolution if available
+    try:
+        ortho_resolution = abs(ortho_transform[0])  # Pixel size in CRS units
+        displacement_x_m = translation[0] * ortho_resolution / ortho_scale
+        displacement_y_m = translation[1] * ortho_resolution / ortho_scale
+        displacement_magnitude_m = np.linalg.norm([displacement_x_m, displacement_y_m])
+    except:
+        displacement_x_m = None
+        displacement_y_m = None
+        displacement_magnitude_m = None
+    
+    return {
+        'displacement_x_pixels': float(translation[0]),
+        'displacement_y_pixels': float(translation[1]),
+        'displacement_magnitude_pixels': float(np.linalg.norm(translation)),
+        'displacement_x_meters': displacement_x_m,
+        'displacement_y_meters': displacement_y_m,
+        'displacement_magnitude_meters': displacement_magnitude_m,
+        'num_matches': len(good_matches),
+        'num_inliers': inlier_count,
+        'rmse_pixels': float(rmse),
+        'transform_type': 'homography',
+        'homography': H.tolist()
+    }
+
+
 def compare_orthomosaic_to_basemap(
     ortho_path: str,
     basemap_path: str,
-    output_dir: str = "outputs"
+    output_dir: str = "outputs",
+    use_feature_matching: bool = True
 ) -> dict:
     """
     Compare orthomosaic to basemap and calculate accuracy metrics.
@@ -270,6 +481,8 @@ def compare_orthomosaic_to_basemap(
         ortho_path: Path to orthomosaic GeoTIFF
         basemap_path: Path to basemap GeoTIFF
         output_dir: Directory for output visualizations
+        use_feature_matching: If True, use feature matching for 2D displacement (works without georeferencing)
+                              If False, use pixel-based comparison (requires georeferencing)
         
     Returns:
         Dictionary of comparison metrics
@@ -278,6 +491,38 @@ def compare_orthomosaic_to_basemap(
     output_dir.mkdir(parents=True, exist_ok=True)
     
     print("Comparing orthomosaic to basemap...")
+    
+    # Use feature matching approach (doesn't require georeferencing)
+    if use_feature_matching:
+        print("Using feature matching approach for 2D displacement calculation...")
+        displacement_metrics = compute_2d_displacement_via_features(ortho_path, basemap_path)
+        
+        # Also try pixel-based comparison if georeferenced
+        pixel_metrics = None
+        try:
+            pixel_metrics = _compare_pixel_based(ortho_path, basemap_path, output_dir)
+        except Exception as e:
+            print(f"Pixel-based comparison failed (likely not georeferenced): {e}")
+        
+        # Combine results
+        result = displacement_metrics.copy()
+        if pixel_metrics:
+            result['pixel_based'] = pixel_metrics
+        else:
+            result['pixel_based'] = {'note': 'Not available - orthomosaic not georeferenced'}
+        
+        return result
+    
+    # Original pixel-based approach (requires georeferencing)
+    return _compare_pixel_based(ortho_path, basemap_path, output_dir)
+
+
+def _compare_pixel_based(
+    ortho_path: str,
+    basemap_path: str,
+    output_dir: Path
+) -> dict:
+    """Original pixel-based comparison method (requires georeferencing)."""
     
     # Load rasters
     with rasterio.open(ortho_path) as ortho_src:
