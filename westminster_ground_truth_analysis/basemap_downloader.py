@@ -176,19 +176,29 @@ def download_basemap(
     if ytile_max < ytile_min:
         raise ValueError(f"Invalid Y tile range: ytile_min={ytile_min}, ytile_max={ytile_max}")
     
+    if xtile_max < xtile_min:
+        raise ValueError(f"Invalid X tile range: xtile_min={xtile_min}, xtile_max={xtile_max}")
+    
+    print(f"Downloading tiles: {xtile_max - xtile_min + 1} columns x {ytile_max - ytile_min + 1} rows")
+    
     for y in range(ytile_min, ytile_max + 1):
         row = []
         for x in range(xtile_min, xtile_max + 1):
-            tile = download_tile(x, y, zoom, source, verbose=True)
+            tile = download_tile(x, y, zoom, source, verbose=False)
             if tile is None:
                 # Create blank tile
                 tile = Image.new('RGB', (256, 256), color=(128, 128, 128))
             row.append(tile)
         tiles.append(row)
     
+    # Validate tiles were downloaded
+    if not tiles:
+        raise ValueError(f"No tile rows created. Tile range: X [{xtile_min}, {xtile_max}], Y [{ytile_min}, {ytile_max}]")
+    
+    if not tiles[0]:
+        raise ValueError(f"No tiles in first row. Tile range: X [{xtile_min}, {xtile_max}], Y [{ytile_min}, {ytile_max}]")
+    
     # Stitch tiles together
-    if not tiles or not tiles[0]:
-        raise ValueError(f"No tiles downloaded. Tile range: X [{xtile_min}, {xtile_max}], Y [{ytile_min}, {ytile_max}]")
     
     tile_height = tiles[0][0].height
     tile_width = tiles[0][0].width
@@ -282,6 +292,7 @@ def compare_orthomosaic_to_basemap(
     
     # Reproject to common CRS and resolution
     target_crs = ortho_crs
+    # target_bounds is a tuple: (left, bottom, right, top)
     target_bounds = (
         max(ortho_bounds.left, basemap_bounds.left),
         max(ortho_bounds.bottom, basemap_bounds.bottom),
@@ -289,16 +300,19 @@ def compare_orthomosaic_to_basemap(
         min(ortho_bounds.top, basemap_bounds.top)
     )
     
+    # Unpack tuple for easier access
+    target_left, target_bottom, target_right, target_top = target_bounds
+    
     # Calculate transform
     transform, width, height = calculate_default_transform(
         basemap_crs,
         target_crs,
-        int((target_bounds.right - target_bounds.left) / 0.5),  # ~0.5m resolution
-        int((target_bounds.top - target_bounds.bottom) / 0.5),
-        left=target_bounds.left,
-        bottom=target_bounds.bottom,
-        right=target_bounds.right,
-        top=target_bounds.top
+        int((target_right - target_left) / 0.5),  # ~0.5m resolution
+        int((target_top - target_bottom) / 0.5),
+        left=target_left,
+        bottom=target_bottom,
+        right=target_right,
+        top=target_top
     )
     
     # Reproject basemap
