@@ -701,7 +701,10 @@ class OrthomosaicPipeline:
         min_x, min_y = positions[:, :2].min(axis=0)
         max_x, max_y = positions[:, :2].max(axis=0)
         
-        # If using GCPs, transform local coordinates to UTM
+        # Store transformation parameters for later use
+        transform_params = None
+        
+        # If using GCPs, calculate transformation from local coordinates to UTM
         if use_gcps and self.gcp_parser:
             print("Georeferencing orthomosaic using GCPs...")
             gcps = self.gcp_parser.get_gcps()
@@ -733,6 +736,14 @@ class OrthomosaicPipeline:
                 scale = (scale_x + scale_y) / 2
             else:
                 scale = 1.0
+            
+            # Store transformation parameters
+            transform_params = {
+                'local_center': (local_center_x, local_center_y),
+                'gcp_center': (gcp_center_x, gcp_center_y),
+                'scale': scale,
+                'translation': (tx, ty)
+            }
             
             # Transform bounds to UTM
             min_x = (min_x - local_center_x) * scale + gcp_center_x
@@ -772,19 +783,31 @@ class OrthomosaicPipeline:
             if img is None:
                 continue
             
-            # Create grid of world coordinates
+            # Create grid of world coordinates (in UTM if georeferenced)
             x_coords = np.linspace(min_x, max_x, width)
             y_coords = np.linspace(max_y, min_y, height)  # Flipped for image coordinates
             X, Y = np.meshgrid(x_coords, y_coords)
             
+            # If georeferenced, transform coordinates back to local for projection
+            # (camera poses are in local coordinates)
+            if transform_params is not None:
+                local_center_x, local_center_y = transform_params['local_center']
+                scale = transform_params['scale']
+                # Transform from UTM back to local for projection
+                X_local = (X - local_center_x) / scale + local_center_x
+                Y_local = (Y - local_center_y) / scale + local_center_y
+            else:
+                X_local = X
+                Y_local = Y
+            
             # Assume ground is at z=0 (or average camera height)
             avg_z = positions[:, 2].mean()
-            Z = np.full_like(X, avg_z)
+            Z = np.full_like(X_local, avg_z)
             
-            # Convert to 3D points
-            points_3d = np.stack([X.ravel(), Y.ravel(), Z.ravel()], axis=1)
+            # Convert to 3D points (in local coordinates for projection)
+            points_3d = np.stack([X_local.ravel(), Y_local.ravel(), Z.ravel()], axis=1)
             
-            # Project to image
+            # Project to image (using local coordinate camera poses)
             rvec, _ = cv2.Rodrigues(pose.rotation)
             # Ensure tvec is 3x1 (column vector) with proper dtype
             tvec = self._ensure_tvec_shape(pose.position)
