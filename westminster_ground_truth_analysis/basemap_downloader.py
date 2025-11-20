@@ -343,13 +343,18 @@ def compute_2d_displacement_via_features(
     kp1, desc1 = detector.detectAndCompute(ortho_gray, None)
     kp2, desc2 = detector.detectAndCompute(basemap_gray, None)
     
-    if desc1 is None or desc2 is None or len(kp1) < 10 or len(kp2) < 10:
+    num_kp1 = len(kp1) if kp1 is not None else 0
+    num_kp2 = len(kp2) if kp2 is not None else 0
+    print(f"  Found {num_kp1} features in orthomosaic, {num_kp2} features in basemap")
+    
+    if desc1 is None or desc2 is None or num_kp1 < 10 or num_kp2 < 10:
+        print(f"  Warning: Insufficient features (need at least 10 in each image)")
         return {
-            'displacement_x': 0.0,
-            'displacement_y': 0.0,
-            'displacement_magnitude': 0.0,
+            'displacement_x_pixels': 0.0,
+            'displacement_y_pixels': 0.0,
+            'displacement_magnitude_pixels': 0.0,
             'num_matches': 0,
-            'rmse': 0.0,
+            'rmse_pixels': 0.0,
             'note': 'Insufficient features for matching'
         }
     
@@ -365,12 +370,13 @@ def compute_2d_displacement_via_features(
                 good_matches.append(m)
     
     if len(good_matches) < 10:
+        print(f"  Warning: Only {len(good_matches)} good matches found (need at least 10)")
         return {
-            'displacement_x': 0.0,
-            'displacement_y': 0.0,
-            'displacement_magnitude': 0.0,
+            'displacement_x_pixels': 0.0,
+            'displacement_y_pixels': 0.0,
+            'displacement_magnitude_pixels': 0.0,
             'num_matches': len(good_matches),
-            'rmse': 0.0,
+            'rmse_pixels': 0.0,
             'note': f'Insufficient matches ({len(good_matches)})'
         }
     
@@ -391,12 +397,12 @@ def compute_2d_displacement_via_features(
             # Simple translation estimate
             translation = np.mean(dst_pts - src_pts, axis=0)[0]
             return {
-                'displacement_x': float(translation[0]),
-                'displacement_y': float(translation[1]),
-                'displacement_magnitude': float(np.linalg.norm(translation)),
+                'displacement_x_pixels': float(translation[0]),
+                'displacement_y_pixels': float(translation[1]),
+                'displacement_magnitude_pixels': float(np.linalg.norm(translation)),
                 'num_matches': len(good_matches),
                 'num_inliers': len(good_matches),
-                'rmse': 0.0,
+                'rmse_pixels': 0.0,
                 'transform_type': 'translation'
             }
         
@@ -413,14 +419,14 @@ def compute_2d_displacement_via_features(
         rmse = np.sqrt(np.mean(errors**2))
         
         return {
-            'displacement_x': float(translation[0]),
-            'displacement_y': float(translation[1]),
-            'displacement_magnitude': float(np.linalg.norm(translation)),
+            'displacement_x_pixels': float(translation[0]),
+            'displacement_y_pixels': float(translation[1]),
+            'displacement_magnitude_pixels': float(np.linalg.norm(translation)),
             'scale': float(scale),
             'rotation_deg': float(rotation),
             'num_matches': len(good_matches),
             'num_inliers': int(inliers.sum()),
-            'rmse': float(rmse),
+            'rmse_pixels': float(rmse),
             'transform_type': 'similarity'
         }
     
