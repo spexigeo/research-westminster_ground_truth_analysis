@@ -303,12 +303,32 @@ def compare_orthomosaic_to_basemap(
     # Unpack tuple for easier access
     target_left, target_bottom, target_right, target_top = target_bounds
     
+    # Check for valid overlap
+    if target_right <= target_left or target_top <= target_bottom:
+        raise ValueError(
+            f"No valid overlap between orthomosaic and basemap. "
+            f"Ortho bounds: {ortho_bounds}, Basemap bounds: {basemap_bounds}, "
+            f"Target bounds: {target_bounds}"
+        )
+    
+    # Calculate dimensions with a reasonable resolution
+    # Use the resolution from the orthomosaic if available, otherwise use 0.5m
+    try:
+        ortho_resolution = abs(ortho_src.transform[0])  # Pixel width in CRS units
+        target_resolution = min(ortho_resolution, 0.5)  # Use smaller of the two
+    except:
+        target_resolution = 0.5  # Default to 0.5m
+    
+    # Calculate width and height based on target resolution
+    width = max(1, int((target_right - target_left) / target_resolution))
+    height = max(1, int((target_top - target_bottom) / target_resolution))
+    
     # Calculate transform
     transform, width, height = calculate_default_transform(
         basemap_crs,
         target_crs,
-        int((target_right - target_left) / 0.5),  # ~0.5m resolution
-        int((target_top - target_bottom) / 0.5),
+        width,
+        height,
         left=target_left,
         bottom=target_bottom,
         right=target_right,
