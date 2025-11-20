@@ -291,25 +291,44 @@ def compare_orthomosaic_to_basemap(
         basemap_bounds = basemap_src.bounds
     
     # Reproject to common CRS and resolution
-    target_crs = ortho_crs
-    # target_bounds is a tuple: (left, bottom, right, top)
-    target_bounds = (
-        max(ortho_bounds.left, basemap_bounds.left),
-        max(ortho_bounds.bottom, basemap_bounds.bottom),
-        min(ortho_bounds.right, basemap_bounds.right),
-        min(ortho_bounds.top, basemap_bounds.top)
-    )
+    # First, check if CRS are the same
+    if ortho_crs != basemap_crs:
+        print(f"CRS mismatch: Ortho={ortho_crs}, Basemap={basemap_crs}")
+        print("Transforming bounds to common CRS for overlap calculation...")
+        
+        # Transform basemap bounds to ortho CRS for overlap calculation
+        from rasterio.warp import transform_bounds
+        basemap_bounds_transformed = transform_bounds(
+            basemap_crs,
+            ortho_crs,
+            basemap_bounds.left,
+            basemap_bounds.bottom,
+            basemap_bounds.right,
+            basemap_bounds.top
+        )
+        basemap_left, basemap_bottom, basemap_right, basemap_top = basemap_bounds_transformed
+    else:
+        basemap_left = basemap_bounds.left
+        basemap_bottom = basemap_bounds.bottom
+        basemap_right = basemap_bounds.right
+        basemap_top = basemap_bounds.top
     
-    # Unpack tuple for easier access
-    target_left, target_bottom, target_right, target_top = target_bounds
+    # Calculate overlap in ortho CRS
+    target_left = max(ortho_bounds.left, basemap_left)
+    target_bottom = max(ortho_bounds.bottom, basemap_bottom)
+    target_right = min(ortho_bounds.right, basemap_right)
+    target_top = min(ortho_bounds.top, basemap_top)
     
     # Check for valid overlap
     if target_right <= target_left or target_top <= target_bottom:
         raise ValueError(
             f"No valid overlap between orthomosaic and basemap. "
-            f"Ortho bounds: {ortho_bounds}, Basemap bounds: {basemap_bounds}, "
-            f"Target bounds: {target_bounds}"
+            f"Ortho bounds (in {ortho_crs}): {ortho_bounds}, "
+            f"Basemap bounds (transformed to {ortho_crs}): ({basemap_left}, {basemap_bottom}, {basemap_right}, {basemap_top}), "
+            f"Target bounds: ({target_left}, {target_bottom}, {target_right}, {target_top})"
         )
+    
+    target_crs = ortho_crs
     
     # Calculate dimensions with a reasonable resolution
     # Use the resolution from the orthomosaic if available, otherwise use 0.5m
