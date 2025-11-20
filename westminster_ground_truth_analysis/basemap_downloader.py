@@ -157,13 +157,25 @@ def download_basemap(
     print(f"Downloading basemap at zoom level {zoom}...")
     
     # Calculate tile range
-    xtile_min, ytile_min = deg2num(min_lat, min_lon, zoom)
-    xtile_max, ytile_max = deg2num(max_lat, max_lon, zoom)
+    # Note: In tile coordinates, Y increases as latitude decreases (south)
+    # So min_lat (south) gives larger Y, max_lat (north) gives smaller Y
+    xtile_min, ytile_south = deg2num(min_lat, min_lon, zoom)  # South = larger Y
+    xtile_max, ytile_north = deg2num(max_lat, max_lon, zoom)  # North = smaller Y
+    
+    # Ensure correct order for range (ytile_min <= ytile_max)
+    ytile_min = min(ytile_north, ytile_south)
+    ytile_max = max(ytile_north, ytile_south)
+    
+    # Also ensure X is in correct order
+    xtile_min, xtile_max = min(xtile_min, xtile_max), max(xtile_min, xtile_max)
     
     print(f"Tile range: X [{xtile_min}, {xtile_max}], Y [{ytile_min}, {ytile_max}]")
     
     # Download tiles
     tiles = []
+    if ytile_max < ytile_min:
+        raise ValueError(f"Invalid Y tile range: ytile_min={ytile_min}, ytile_max={ytile_max}")
+    
     for y in range(ytile_min, ytile_max + 1):
         row = []
         for x in range(xtile_min, xtile_max + 1):
@@ -175,6 +187,9 @@ def download_basemap(
         tiles.append(row)
     
     # Stitch tiles together
+    if not tiles or not tiles[0]:
+        raise ValueError(f"No tiles downloaded. Tile range: X [{xtile_min}, {xtile_max}], Y [{ytile_min}, {ytile_max}]")
+    
     tile_height = tiles[0][0].height
     tile_width = tiles[0][0].width
     
