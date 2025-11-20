@@ -497,16 +497,45 @@ def compare_orthomosaic_to_basemap(
         print("Using feature matching approach for 2D displacement calculation...")
         displacement_metrics = compute_2d_displacement_via_features(ortho_path, basemap_path)
         
-        # Also try pixel-based comparison if georeferenced
+        # Check if feature matching succeeded
+        if 'note' in displacement_metrics and 'Insufficient' in displacement_metrics.get('note', ''):
+            print(f"Warning: {displacement_metrics['note']}")
+            print("Feature matching could not find enough correspondences between orthomosaic and basemap.")
+            return displacement_metrics
+        
+        # Print displacement results
+        print(f"\n2D Displacement Metrics:")
+        if 'displacement_x_pixels' in displacement_metrics:
+            print(f"  Displacement (pixels): X={displacement_metrics['displacement_x_pixels']:.2f}, "
+                  f"Y={displacement_metrics['displacement_y_pixels']:.2f}, "
+                  f"Magnitude={displacement_metrics['displacement_magnitude_pixels']:.2f}")
+        if 'displacement_x_meters' in displacement_metrics and displacement_metrics['displacement_x_meters'] is not None:
+            print(f"  Displacement (meters): X={displacement_metrics['displacement_x_meters']:.2f}, "
+                  f"Y={displacement_metrics['displacement_y_meters']:.2f}, "
+                  f"Magnitude={displacement_metrics['displacement_magnitude_meters']:.2f}")
+        print(f"  Number of matches: {displacement_metrics.get('num_matches', 0)}")
+        print(f"  Number of inliers: {displacement_metrics.get('num_inliers', 0)}")
+        print(f"  RMSE (pixels): {displacement_metrics.get('rmse_pixels', 0):.2f}")
+        print(f"  Transform type: {displacement_metrics.get('transform_type', 'unknown')}")
+        
+        # Also try pixel-based comparison if georeferenced (silently)
         pixel_metrics = None
         try:
-            pixel_metrics = _compare_pixel_based(ortho_path, basemap_path, output_dir)
+            # Suppress warnings from pixel-based comparison
+            import warnings
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                pixel_metrics = _compare_pixel_based(ortho_path, basemap_path, output_dir)
+                # Check if it actually succeeded (not just returned dummy metrics)
+                if pixel_metrics.get('note', '').startswith('Orthomosaic not georeferenced'):
+                    pixel_metrics = None
         except Exception as e:
-            print(f"Pixel-based comparison failed (likely not georeferenced): {e}")
+            # Silently ignore - pixel-based comparison not available
+            pass
         
         # Combine results
         result = displacement_metrics.copy()
-        if pixel_metrics:
+        if pixel_metrics and 'note' not in pixel_metrics:
             result['pixel_based'] = pixel_metrics
         else:
             result['pixel_based'] = {'note': 'Not available - orthomosaic not georeferenced'}
@@ -547,11 +576,7 @@ def _compare_pixel_based(
                        ortho_span_x < 1000 and ortho_span_y < 1000)
     
     if is_local_coords:
-        print(f"Warning: Orthomosaic appears to be in local coordinates (not georeferenced).")
-        print(f"  Ortho bounds: {ortho_bounds}")
-        print(f"  This orthomosaic needs to be georeferenced using GCPs before comparison.")
-        print(f"  Skipping comparison - please ensure orthomosaic is properly georeferenced.")
-        # Return dummy metrics
+        # Return dummy metrics without printing warning (warning handled by caller)
         return {
             'rmse': 0.0,
             'mae': 0.0,
