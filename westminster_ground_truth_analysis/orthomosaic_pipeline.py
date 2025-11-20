@@ -821,6 +821,7 @@ class OrthomosaicPipeline:
             projected = projected.reshape(height, width, 2)
             
             # Sample from image
+            pixels_added = 0
             for y in range(height):
                 for x in range(width):
                     px, py = projected[y, x]
@@ -829,10 +830,22 @@ class OrthomosaicPipeline:
                     if 0 <= px < img_meta.width and 0 <= py < img_meta.height:
                         ortho_image[y, x] += img[py, px]
                         ortho_count[y, x] += 1
+                        pixels_added += 1
+            
+            if img_idx == 0:  # Debug first image
+                print(f"  First image: {pixels_added} pixels projected out of {width * height} total")
         
         # Average overlapping pixels
         valid = ortho_count > 0
-        ortho_image[valid] = (ortho_image[valid] / ortho_count[valid, np.newaxis]).astype(np.uint8)
+        valid_count = valid.sum()
+        print(f"Valid pixels (with data): {valid_count} out of {width * height} ({100*valid_count/(width*height):.1f}%)")
+        
+        if valid_count == 0:
+            print("WARNING: No valid pixels in orthomosaic! All pixels are zero.")
+            print("This suggests the projection is failing - check camera poses and coordinate transformation.")
+        else:
+            ortho_image[valid] = (ortho_image[valid] / ortho_count[valid, np.newaxis]).astype(np.uint8)
+            print(f"Orthomosaic pixel value range: [{ortho_image[valid].min()}, {ortho_image[valid].max()}]")
         
         # Save as GeoTIFF
         transform = from_bounds(min_x, min_y, max_x, max_y, width, height)
