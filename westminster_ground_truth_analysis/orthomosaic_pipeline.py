@@ -701,6 +701,50 @@ class OrthomosaicPipeline:
         min_x, min_y = positions[:, :2].min(axis=0)
         max_x, max_y = positions[:, :2].max(axis=0)
         
+        # If using GCPs, transform local coordinates to UTM
+        if use_gcps and self.gcp_parser:
+            print("Georeferencing orthomosaic using GCPs...")
+            gcps = self.gcp_parser.get_gcps()
+            
+            # Get GCP bounds in UTM
+            gcp_min_x, gcp_min_y, gcp_max_x, gcp_max_y = self.gcp_parser.get_bounds()
+            
+            # Estimate transformation from local to UTM
+            # Use the center of local coordinates and center of GCP area
+            local_center_x = (min_x + max_x) / 2
+            local_center_y = (min_y + max_y) / 2
+            gcp_center_x = (gcp_min_x + gcp_max_x) / 2
+            gcp_center_y = (gcp_min_y + gcp_max_y) / 2
+            
+            # Calculate translation
+            tx = gcp_center_x - local_center_x
+            ty = gcp_center_y - local_center_y
+            
+            # Estimate scale from GCP span vs local span
+            local_span_x = max_x - min_x
+            local_span_y = max_y - min_y
+            gcp_span_x = gcp_max_x - gcp_min_x
+            gcp_span_y = gcp_max_y - gcp_min_y
+            
+            # Use average scale if both spans are reasonable
+            if local_span_x > 0.1 and local_span_y > 0.1:
+                scale_x = gcp_span_x / local_span_x if local_span_x > 0 else 1.0
+                scale_y = gcp_span_y / local_span_y if local_span_y > 0 else 1.0
+                scale = (scale_x + scale_y) / 2
+            else:
+                scale = 1.0
+            
+            # Transform bounds to UTM
+            min_x = (min_x - local_center_x) * scale + gcp_center_x
+            min_y = (min_y - local_center_y) * scale + gcp_center_y
+            max_x = (max_x - local_center_x) * scale + gcp_center_x
+            max_y = (max_y - local_center_y) * scale + gcp_center_y
+            
+            print(f"Transformed bounds to UTM: X=[{min_x:.2f}, {max_x:.2f}], Y=[{min_y:.2f}, {max_y:.2f}]")
+        else:
+            print("Warning: Orthomosaic created in local coordinates (not georeferenced)")
+            print("  To georeference, use GCPs by setting use_gcps=True and providing gcp_parser")
+        
         # Expand bounds
         margin = 50.0  # meters
         min_x -= margin
