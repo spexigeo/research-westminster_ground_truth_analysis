@@ -290,6 +290,33 @@ def compare_orthomosaic_to_basemap(
         basemap_crs = basemap_src.crs
         basemap_bounds = basemap_src.bounds
     
+    # Check if orthomosaic is in a local coordinate system (not properly georeferenced)
+    # UTM coordinates should be in the hundreds of thousands, not tens
+    ortho_span_x = abs(ortho_bounds.right - ortho_bounds.left)
+    ortho_span_y = abs(ortho_bounds.top - ortho_bounds.bottom)
+    ortho_center_x = (ortho_bounds.left + ortho_bounds.right) / 2
+    ortho_center_y = (ortho_bounds.bottom + ortho_bounds.top) / 2
+    
+    # If orthomosaic appears to be in local coordinates (small values, centered near 0)
+    is_local_coords = (abs(ortho_center_x) < 1000 and abs(ortho_center_y) < 1000 and 
+                       ortho_span_x < 1000 and ortho_span_y < 1000)
+    
+    if is_local_coords:
+        print(f"Warning: Orthomosaic appears to be in local coordinates (not georeferenced).")
+        print(f"  Ortho bounds: {ortho_bounds}")
+        print(f"  This orthomosaic needs to be georeferenced using GCPs before comparison.")
+        print(f"  Skipping comparison - please ensure orthomosaic is properly georeferenced.")
+        # Return dummy metrics
+        return {
+            'rmse': 0.0,
+            'mae': 0.0,
+            'correlation': 0.0,
+            'ssim': 0.0,
+            'valid_pixels': 0,
+            'total_pixels': 0,
+            'note': 'Orthomosaic not georeferenced - comparison skipped'
+        }
+    
     # Reproject to common CRS and resolution
     # First, check if CRS are the same
     if ortho_crs != basemap_crs:
