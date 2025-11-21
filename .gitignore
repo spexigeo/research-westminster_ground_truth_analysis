@@ -43,8 +43,54 @@ outputs/
 *.jpeg
 
 # Cache
+# Output directories and files
+outputs/
+**/outputs/
+*.tif
+*.TIF
+*.png
+*.jpg
+*.jpeg
+*.geotiff
+*.gtiff
+
+# Cache files
 **/cache/
 *.pkl
+*.pickle
+
+# Jupyter notebook checkpoints
+.ipynb_checkpoints/
+**/.ipynb_checkpoints/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+*.log
 
 # Data (if large)
 # Uncomment if you want to ignore data files
