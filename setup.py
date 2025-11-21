@@ -16,7 +16,7 @@ setup(
     description="Ground truth analysis for orthomosaic creation from DJI drone imagery",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/yourusername/westminster_ground_truth_analysis",
+    url="https://github.com/yourusername/research-westminster_ground_truth_analysis",
     packages=find_packages(),
     classifiers=[
         "Development Status :: 3 - Alpha",

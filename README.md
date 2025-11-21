@@ -33,7 +33,7 @@ See the Jupyter notebooks:
 ## Project Structure
 
 ```
-westminster_ground_truth_analysis/
+research-westminster_ground_truth_analysis/
 ├── westminster_ground_truth_analysis/
 │   ├── __init__.py
 │   ├── orthomosaic_pipeline.py    # Main orthomosaic creation pipeline
