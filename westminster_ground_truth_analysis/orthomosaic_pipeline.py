@@ -863,7 +863,8 @@ class OrthomosaicPipeline:
             dtype=ortho_image.dtype,
             crs=crs,
             transform=transform,
-            compress='lzw'
+            compress='jpeg',
+            jpeg_quality=90
         ) as dst:
             dst.write(ortho_image.transpose(2, 0, 1))
         

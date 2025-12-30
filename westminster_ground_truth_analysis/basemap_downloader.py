@@ -250,7 +250,8 @@ def download_basemap(
         dtype=array.dtype,
         crs=CRS.from_epsg(4326),  # WGS84
         transform=transform,
-        compress='lzw'
+            compress='jpeg',
+            jpeg_quality=90
     ) as dst:
         dst.write(array.transpose(2, 0, 1))
     
