@@ -27,8 +27,16 @@ pip install -e .
 ## Usage
 
 See the Jupyter notebooks:
-- `test_westminster_analysis.ipynb` - Local Jupyter notebook
-- `test_westminster_analysis_colab.ipynb` - Google Colab version
+
+### MetaShape Analysis Notebooks
+- `test_westminster_analysis_metashape_spexi_data.ipynb` - Local Jupyter notebook for Spexi data analysis
+- `test_westminster_analysis_metashape_spexi_data_colab.ipynb` - Google Colab version
+- `test_westminster_analysis_metashape_rtk_ground_truth.ipynb` - Local Jupyter notebook for RTK ground truth analysis
+- `test_westminster_analysis_metashape_rtk_ground_truth_colab.ipynb` - Google Colab version
+
+### Orthomosaic Matching Notebooks
+- `test_orthos_gcp_matching.ipynb` - Local Jupyter notebook for GCP-based orthomosaic matching
+- `test_orthos_gcp_matching_colab.ipynb` - Google Colab version
 
 ## Project Structure
 
@@ -42,8 +50,12 @@ research-westminster_ground_truth_analysis/
 │   ├── basemap_downloader.py       # Basemap download and comparison
 │   └── visualization.py            # Visualization utilities
 ├── outputs/                        # Generated orthomosaics and results
-├── test_westminster_analysis.ipynb
-└── test_westminster_analysis_colab.ipynb
+├── test_westminster_analysis_metashape_spexi_data.ipynb
+├── test_westminster_analysis_metashape_spexi_data_colab.ipynb
+├── test_westminster_analysis_metashape_rtk_ground_truth.ipynb
+├── test_westminster_analysis_metashape_rtk_ground_truth_colab.ipynb
+├── test_orthos_gcp_matching.ipynb
+└── test_orthos_gcp_matching_colab.ipynb
 ```
 
 ## Data
